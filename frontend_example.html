@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical Search with Live Updates</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+        button {
+            padding: 12px 24px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .progress {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            min-height: 100px;
+        }
+        .progress-item {
+            padding: 8px 0;
+            color: #666;
+            animation: fadeIn 0.3s ease-in;
+        }
+        .progress-item.tool-call {
+            color: #007bff;
+            font-weight: 500;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            background: #e8f5e9;
+            border-radius: 6px;
+            display: none;
+        }
+        .result.show {
+            display: block;
+            animation: fadeIn 0.5s ease-in;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .sources {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+        .source-tag {
+            display: inline-block;
+            padding: 4px 10px;
+            background: #e3f2fd;
+            color: #1976d2;
+            border-radius: 4px;
+            margin-right: 8px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔬 Medical Search with Live Updates</h1>
+
+        <div class="search-box">
+            <input
+                type="text"
+                id="query"
+                placeholder="Enter your medical question..."
+                value="What is the treatment for migraine?"
+            >
+            <button onclick="search()" id="searchBtn">Search</button>
+            <button onclick="searchWithStreaming()" id="streamBtn">Search (Live)</button>
+        </div>
+
+        <div id="progress" class="progress" style="display: none;"></div>
+        <div id="result" class="result"></div>
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        const API_URL = 'https://agentic-search-481449150144.asia-east2.run.app';
+        // For local testing: const API_URL = 'http://localhost:8000';
+
+        // Regular search (no streaming)
+        async function search() {
+            const query = document.getElementById('query').value;
+            const progressDiv = document.getElementById('progress');
+            const resultDiv = document.getElementById('result');
+            const errorDiv = document.getElementById('error');
+            const searchBtn = document.getElementById('searchBtn');
+
+            // Reset UI
+            progressDiv.style.display = 'block';
+            progressDiv.innerHTML = '<div class="spinner"></div> Searching...';
+            resultDiv.classList.remove('show');
+            errorDiv.style.display = 'none';
+            searchBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_URL}/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        use_tool_calling: true,
+                        stream: false
+                    })
+                });
+
+                const data = await response.json();
+
+                progressDiv.style.display = 'none';
+                resultDiv.innerHTML = `
+                    <h3>📋 Answer:</h3>
+                    <p>${data.answer}</p>
+                    <div class="sources">
+                        <strong>Sources used:</strong><br>
+                        ${data.sources.map(s => `<span class="source-tag">${s}</span>`).join('')}
+                    </div>
+                    <div style="margin-top: 15px; color: #666; font-size: 14px;">
+                        ⏱️ Time: ${data.execution_time.toFixed(1)}s |
+                        🔄 Iterations: ${data.iterations}
+                    </div>
+                `;
+                resultDiv.classList.add('show');
+
+            } catch (error) {
+                progressDiv.style.display = 'none';
+                errorDiv.style.display = 'block';
+                errorDiv.textContent = `Error: ${error.message}`;
+            } finally {
+                searchBtn.disabled = false;
+            }
+        }
+
+        // Streaming search with live updates
+        async function searchWithStreaming() {
+            const query = document.getElementById('query').value;
+            const progressDiv = document.getElementById('progress');
+            const resultDiv = document.getElementById('result');
+            const errorDiv = document.getElementById('error');
+            const streamBtn = document.getElementById('streamBtn');
+
+            // Reset UI
+            progressDiv.style.display = 'block';
+            progressDiv.innerHTML = '';
+            resultDiv.classList.remove('show');
+            errorDiv.style.display = 'none';
+            streamBtn.disabled = true;
+
+            try {
+                // Use EventSource for SSE
+                const eventSource = new EventSource(`${API_URL}/search/stream?query=${encodeURIComponent(query)}`);
+
+                eventSource.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'start') {
+                        addProgress('🚀 ' + data.message);
+                    } else if (data.type === 'tool_call') {
+                        addProgress(`🔧 ${data.message}`, 'tool-call');
+                    } else if (data.type === 'progress') {
+                        addProgress('📊 ' + data.message);
+                    } else if (data.type === 'complete') {
+                        eventSource.close();
+                        progressDiv.innerHTML += '<div class="progress-item">✅ Search complete!</div>';
+
+                        // Show result
+                        const result = data.result;
+                        resultDiv.innerHTML = `
+                            <h3>📋 Answer:</h3>
+                            <p>${result.answer}</p>
+                            <div class="sources">
+                                <strong>Sources used:</strong><br>
+                                ${result.tools_used.map(s => `<span class="source-tag">${s}</span>`).join('')}
+                            </div>
+                            <div style="margin-top: 15px; color: #666; font-size: 14px;">
+                                ⏱️ Time: ${result.execution_time.toFixed(1)}s |
+                                🔄 Iterations: ${result.iterations}
+                            </div>
+                        `;
+                        resultDiv.classList.add('show');
+                        streamBtn.disabled = false;
+                    } else if (data.type === 'error') {
+                        eventSource.close();
+                        errorDiv.style.display = 'block';
+                        errorDiv.textContent = `Error: ${data.message}`;
+                        streamBtn.disabled = false;
+                    }
+                };
+
+                eventSource.onerror = (error) => {
+                    eventSource.close();
+                    errorDiv.style.display = 'block';
+                    errorDiv.textContent = 'Connection error. Please try again.';
+                    streamBtn.disabled = false;
+                };
+
+            } catch (error) {
+                errorDiv.style.display = 'block';
+                errorDiv.textContent = `Error: ${error.message}`;
+                streamBtn.disabled = false;
+            }
+        }
+
+        function addProgress(message, className = '') {
+            const progressDiv = document.getElementById('progress');
+            const item = document.createElement('div');
+            item.className = `progress-item ${className}`;
+            item.textContent = message;
+            progressDiv.appendChild(item);
+        }
+
+        // Allow Enter key to search
+        document.getElementById('query').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchWithStreaming();
+            }
+        });
+    </script>
+</body>
+</html>
