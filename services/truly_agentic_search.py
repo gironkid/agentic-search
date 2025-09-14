@@ -106,7 +106,25 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
             'check_pregnancy_safety',  # Pregnancy drug safety
             'check_renal_dosing'       # Renal dosing adjustments
         ]
-    
+
+    async def _call_streaming_callback(self, callback, message: str):
+        """
+        Helper method to handle both async and sync callbacks safely
+        """
+        if callback is None:
+            return
+
+        try:
+            # Check if callback is async
+            if asyncio.iscoroutinefunction(callback):
+                await callback(message)
+            else:
+                # For sync callbacks, just call them directly
+                callback(message)
+        except Exception as e:
+            # Log error but don't fail the search
+            logging.warning(f"Streaming callback error: {e}")
+
     async def execute_agentic(self, query: str, streaming_callback=None) -> Dict[str, Any]:
         """
         Execute a truly agentic search with iterative refinement
@@ -134,7 +152,7 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
             state.iteration += 1
             
             if streaming_callback:
-                await streaming_callback(f"Iteration {state.iteration}: Analyzing query and selecting tools...")
+                await self._call_streaming_callback(streaming_callback, f"Iteration {state.iteration}: Analyzing query and selecting tools...")
             
             # Step 1: Determine what tools to use based on current state
             tools_to_use = await self._select_next_tools(state)
@@ -144,7 +162,7 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
                 break
             
             if streaming_callback:
-                await streaming_callback(f"Trying tools: {', '.join(tools_to_use)}")
+                await self._call_streaming_callback(streaming_callback, f"Trying tools: {', '.join(tools_to_use)}")
             
             # Step 2: Execute the selected tools
             results = await self.search_parallel(state.query, tools_to_use)
@@ -157,30 +175,30 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
                 state.tools_tried.append(tool)
                 
                 if streaming_callback:
-                    await streaming_callback(f"{tool}: {quality.value} quality")
+                    await self._call_streaming_callback(streaming_callback, f"{tool}: {quality.value} quality")
             
             # Step 4: Check if we need to refine the query
             if self._should_refine_query(state):
                 state.query = await self._refine_query(state)
                 if streaming_callback:
-                    await streaming_callback(f"Refined query: {state.query}")
+                    await self._call_streaming_callback(streaming_callback, f"Refined query: {state.query}")
             
             # Step 5: Check if we have good enough results to stop
             if self._has_sufficient_results(state):
                 if streaming_callback:
-                    await streaming_callback("Found sufficient results, completing search...")
+                    await self._call_streaming_callback(streaming_callback, "Found sufficient results, completing search...")
                 break
             
             # Step 6: Check if we should try additional tools
             if self._should_expand_search(state):
                 if streaming_callback:
-                    await streaming_callback("Expanding search to additional sources...")
+                    await self._call_streaming_callback(streaming_callback, "Expanding search to additional sources...")
             
             state.total_time = time.time() - start_time
         
         # Step 6: Synthesize final answer from all collected results
         if streaming_callback:
-            await streaming_callback("Synthesizing comprehensive answer from all sources...")
+            await self._call_streaming_callback(streaming_callback, "Synthesizing comprehensive answer from all sources...")
         
         final_answer = await self._synthesize_comprehensive(state)
         
@@ -488,8 +506,8 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
         start_time = time.time()
         
         if streaming_callback:
-            await streaming_callback("🤖 Starting AI-powered medical search...")
-            await streaming_callback(f"  Query: \"{query[:100]}...\"" if len(query) > 100 else f"  Query: \"{query}\"")
+            await self._call_streaming_callback(streaming_callback, "🤖 Starting AI-powered medical search...")
+            await self._call_streaming_callback(streaming_callback, f"  Query: \"{query[:100]}...\"" if len(query) > 100 else f"  Query: \"{query}\"")
         
         # Define tools for OpenAI function calling
         tools = self._get_openai_tool_definitions()
@@ -550,21 +568,21 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
 
             if streaming_callback:
                 if iterations == 1:
-                    await streaming_callback(f"\n🔍 Beginning search...")
+                    await self._call_streaming_callback(streaming_callback, f"\n🔍 Beginning search...")
                 else:
                     # Show why we're continuing
                     if results_collected:
                         quality_summary = self._summarize_quality(results_collected)
-                        await streaming_callback(f"\n🔄 Continuing search (Iteration {iterations})")
-                        await streaming_callback(f"  Current status: {quality_summary}")
+                        await self._call_streaming_callback(streaming_callback, f"\n🔄 Continuing search (Iteration {iterations})")
+                        await self._call_streaming_callback(streaming_callback, f"  Current status: {quality_summary}")
                     else:
-                        await streaming_callback(f"\n🔄 Iteration {iterations}")
-                await streaming_callback(f"  Analyzing query and selecting tools...")
+                        await self._call_streaming_callback(streaming_callback, f"\n🔄 Iteration {iterations}")
+                await self._call_streaming_callback(streaming_callback, f"  Analyzing query and selecting tools...")
             
             try:
                 # Call OpenAI with tools
                 if streaming_callback:
-                    await streaming_callback(f"  Selecting optimal tools for this query...")
+                    await self._call_streaming_callback(streaming_callback, f"  Selecting optimal tools for this query...")
 
                 response = await self.openai_client.chat.completions.create(
                     model=self.model,
@@ -581,8 +599,8 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
                 if message.tool_calls:
                     if streaming_callback:
                         tools_to_call = [tc.function.name.replace('_', ' ').title() for tc in message.tool_calls]
-                        await streaming_callback(f"  Selected {len(message.tool_calls)} tool{'s' if len(message.tool_calls) > 1 else ''}: {', '.join(tools_to_call)}")
-                        await streaming_callback(f"\n🔧 Executing tools...")
+                        await self._call_streaming_callback(streaming_callback, f"  Selected {len(message.tool_calls)} tool{'s' if len(message.tool_calls) > 1 else ''}: {', '.join(tools_to_call)}")
+                        await self._call_streaming_callback(streaming_callback, f"\n🔧 Executing tools...")
 
                     # Execute tool calls
                     tool_results = await self._execute_llm_tool_calls(
@@ -631,12 +649,12 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
                     
                     if streaming_callback:
                         tool_names = [tc.function.name.replace('_', ' ').title() for tc in message.tool_calls]
-                        await streaming_callback(f"  ✓ Completed {len(message.tool_calls)} tool{'s' if len(message.tool_calls) > 1 else ''}: {', '.join(tool_names)}")
+                        await self._call_streaming_callback(streaming_callback, f"  ✓ Completed {len(message.tool_calls)} tool{'s' if len(message.tool_calls) > 1 else ''}: {', '.join(tool_names)}")
                 else:
                     # LLM has no more tools to call - this means IT decided to stop
                     satisfied = True
                     if streaming_callback:
-                        await streaming_callback(f"  ✓ AI determined sufficient information gathered")
+                        await self._call_streaming_callback(streaming_callback, f"  ✓ AI determined sufficient information gathered")
                     break
 
                 # Optional: Add quality information to context for LLM's next decision
@@ -661,20 +679,20 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
                         quality_summary.append(f"{empty_count} empty")
 
                     if quality_summary:
-                        await streaming_callback(f"  Quality: {', '.join(quality_summary)} results")
+                        await self._call_streaming_callback(streaming_callback, f"  Quality: {', '.join(quality_summary)} results")
 
                     # Only stop if ALL attempts have failed completely
                     if len(quality_scores) >= 3 and empty_count == len(quality_scores):
                         # This is a safety check - if everything is empty, no point continuing
                         satisfied = True
                         if streaming_callback:
-                            await streaming_callback(f"  ⚠️ No results found from any sources, stopping")
+                            await self._call_streaming_callback(streaming_callback, f"  ⚠️ No results found from any sources, stopping")
                         break
                     
             except Exception as e:
                 logger.error(f"Error in LLM tool calling: {str(e)}")
                 if streaming_callback:
-                    await streaming_callback(f"  ⚠️ Error: {str(e)[:100]}")
+                    await self._call_streaming_callback(streaming_callback, f"  ⚠️ Error: {str(e)[:100]}")
                 # Don't break on error if we have some results
                 if results_collected:
                     satisfied = True
@@ -683,7 +701,7 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
         # Get final synthesis from LLM
         if streaming_callback:
             total_results = sum(len(r.get('results', [])) if isinstance(r, dict) else 0 for r in results_collected.values())
-            await streaming_callback(f"\n📝 Final Step: Synthesizing comprehensive answer from {len(tools_used)} source{'s' if len(tools_used) != 1 else ''} ({total_results} total results)...")
+            await self._call_streaming_callback(streaming_callback, f"\n📝 Final Step: Synthesizing comprehensive answer from {len(tools_used)} source{'s' if len(tools_used) != 1 else ''} ({total_results} total results)...")
         
         try:
             final_response = await self.openai_client.chat.completions.create(
@@ -889,9 +907,9 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
 
             if streaming_callback:
                 # Show detailed progress with search terms
-                await streaming_callback(f"Step {i}/{len(tool_calls)}: {display_name}")
+                await self._call_streaming_callback(streaming_callback, f"Step {i}/{len(tool_calls)}: {display_name}")
                 if search_query:
-                    await streaming_callback(f"  → Search terms: \"{search_query[:100]}...\" " if len(search_query) > 100 else f"  → Search terms: \"{search_query}\"")
+                    await self._call_streaming_callback(streaming_callback, f"  → Search terms: \"{search_query[:100]}...\" " if len(search_query) > 100 else f"  → Search terms: \"{search_query}\"")
             
             # Map to actual tool execution
             try:
@@ -915,7 +933,7 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
                 elif tool_name in self.all_tools:
                     # Use existing tool implementations
                     if streaming_callback:
-                        await streaming_callback(f"  → Searching...")
+                        await self._call_streaming_callback(streaming_callback, f"  → Searching...")
 
                     result = await self.search_parallel(
                         tool_args.get('query', ''),
@@ -933,15 +951,15 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
                             ResultQuality.EMPTY: '🔴'
                         }.get(quality, '⚪')
                         result_count = len(result.get(tool_name, {}).get('results', []))
-                        await streaming_callback(f"  → Found {result_count} results {quality_emoji} ({quality.value})")
+                        await self._call_streaming_callback(streaming_callback, f"  → Found {result_count} results {quality_emoji} ({quality.value})")
                 else:
                     results[tool_call.id] = {'error': f'Unknown tool: {tool_name}'}
                     if streaming_callback:
-                        await streaming_callback(f"  ⚠️ Unknown tool: {tool_name}")
+                        await self._call_streaming_callback(streaming_callback, f"  ⚠️ Unknown tool: {tool_name}")
             except Exception as e:
                 results[tool_call.id] = {'error': str(e)}
                 if streaming_callback:
-                    await streaming_callback(f"  ❌ Error: {str(e)[:50]}")
+                    await self._call_streaming_callback(streaming_callback, f"  ❌ Error: {str(e)[:50]}")
         
         return results
     
