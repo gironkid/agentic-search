@@ -182,6 +182,9 @@ async def event_generator(request: SearchRequest):
             events_sent.append(event)
             return f"data: {json.dumps(event)}\n\n"
 
+        # Initialize result to avoid UnboundLocalError
+        result = {}
+
         # Execute search based on mode
         if request.mode == "agentic":
             # Stream progress during execution
