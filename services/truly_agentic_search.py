@@ -707,7 +707,16 @@ class TrulyAgenticSearch(OptimizedMedicalSearchFixed):
             final_response = await self.openai_client.chat.completions.create(
                 model=self.model,
                 messages=messages + [
-                    {"role": "user", "content": "Please provide a comprehensive answer based on all the information gathered."}
+                    {"role": "user", "content": """Please provide a comprehensive answer based on all the information gathered.
+
+CRITICAL REQUIREMENTS:
+1. Include numbered citations [1], [2], etc. throughout your response
+2. At the end, include a "References" section with clickable URLs
+3. Format each reference as: [#] Title. Authors. Journal (Year). URL
+4. Extract URLs from the search results - every source should have a URL (PubMed, Clinical Trials, Web, FDA)
+5. If a result has a PMID, the URL is https://pubmed.ncbi.nlm.nih.gov/[PMID]/
+6. If a result has an NCT ID, the URL is https://clinicaltrials.gov/study/[NCT_ID]
+7. Every citation in your text MUST have a corresponding reference with URL"""}
                 ],
                 temperature=0.3,
                 max_tokens=2000

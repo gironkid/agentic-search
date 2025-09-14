@@ -595,6 +595,7 @@ class OptimizedMedicalSearchFixed:
         # Prepare rich context for comprehensive analysis
         context_parts = []
         citation_count = 0
+        references_list = []  # Track all references with URLs
 
         for tool, data in results.items():
             if 'error' not in data and data.get('results'):
@@ -634,20 +635,67 @@ class OptimizedMedicalSearchFixed:
                         if journal or year:
                             tool_context += f"Source: {journal} ({year})\n"
 
-                        # Include PMID or other identifiers
+                        # Include URL/Link - PRIORITY for clickable references
+                        url = result.get('url', '') or result.get('pubmed_url', '') or result.get('full_text_url', '')
+                        if not url:
+                            # Construct URL from identifiers if not provided
+                            pmid = result.get('pmid', '')
+                            doi = result.get('doi', '')
+                            nct_id = result.get('nct_id', '')
+
+                            if pmid:
+                                url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                            elif doi:
+                                url = f"https://doi.org/{doi}"
+                            elif nct_id:
+                                url = f"https://clinicaltrials.gov/study/{nct_id}"
+
+                        if url:
+                            tool_context += f"Link: {url}\n"
+
+                        # Include other identifiers for completeness
                         pmid = result.get('pmid', '')
                         doi = result.get('doi', '')
-                        if pmid:
+                        if pmid and not url.endswith(f"{pmid}/"):
                             tool_context += f"PMID: {pmid}\n"
-                        elif doi:
+                        if doi and not url.endswith(doi):
                             tool_context += f"DOI: {doi}\n"
 
                         tool_context += "\n"
 
+                        # Collect reference info for the references section
+                        ref_info = {
+                            'number': citation_count,
+                            'title': title,
+                            'authors': author_str if authors else '',
+                            'journal': journal,
+                            'year': year,
+                            'url': url
+                        }
+                        references_list.append(ref_info)
+
                 context_parts.append(tool_context)
 
         # Allow much more context for comprehensive analysis
-        context = "\n".join(context_parts)[:8000]  # Increased from 2000 to 8000
+        context = "\n".join(context_parts)[:7000]  # Slightly reduced to make room for references
+
+        # Add formatted references section to context
+        if references_list:
+            references_section = "\n\n=== REFERENCES WITH URLS ===\n"
+            for ref in references_list:
+                ref_line = f"[{ref['number']}] {ref['title']}"
+                if ref['authors']:
+                    ref_line += f". {ref['authors']}"
+                if ref['journal'] and ref['year']:
+                    ref_line += f". {ref['journal']} ({ref['year']})"
+                elif ref['journal']:
+                    ref_line += f". {ref['journal']}"
+                elif ref['year']:
+                    ref_line += f" ({ref['year']})"
+                if ref['url']:
+                    ref_line += f". {ref['url']}"
+                references_section += ref_line + "\n"
+            context += references_section[:1000]  # Add up to 1000 chars of references
 
         # Use LLM to intelligently classify the query type
         classification_prompt = f"""
@@ -797,12 +845,20 @@ class OptimizedMedicalSearchFixed:
         IMPORTANT REQUIREMENTS:
         - Be thorough and comprehensive, not brief
         - Include specific statistics, numbers, and research findings when available
-        - Reference sources using [1], [2] notation throughout
+        - Reference sources using [1], [2] notation throughout your response
+        - CRITICAL: At the end of your response, include a "References" section with clickable links
+        - Format references as: [1] Title. Authors. Journal (Year). Link: URL
+        - Every numbered citation in your text MUST have a corresponding reference with URL
         - Use clear headings to organize your response naturally
         - Include multiple research perspectives when available
         - Aim for a response suitable for healthcare professionals
         - Adapt your response structure to best answer the specific question
         - Don't force sections that aren't relevant to the query
+
+        REFERENCE FORMAT EXAMPLE:
+        ## References
+        [1] Treatment of Hypertension in Adults. Smith et al. NEJM (2023). https://pubmed.ncbi.nlm.nih.gov/12345678/
+        [2] Clinical Guidelines for Diabetes. Johnson et al. Lancet (2023). https://doi.org/10.1016/S0140-6736(23)00001-1
 
         Provide a detailed, evidence-based medical response that directly addresses the query.
         """
