@@ -1,0 +1,21 @@
+# Core
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-dotenv>=1.0.0
+
+# LLM & AI
+openai>=1.0.0
+langchain>=0.1.0
+langchain-openai>=0.0.5
+
+# HTTP & Async
+aiohttp>=3.9.0
+httpx>=0.24.0
+
+# Data Processing
+pydantic>=2.0.0
+pyyaml>=6.0
+python-multipart>=0.0.6
+
+# CLI
+rich>=13.0.0
